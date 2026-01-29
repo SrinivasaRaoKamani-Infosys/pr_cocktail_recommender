@@ -2,7 +2,7 @@ terraform {
   required_version = ">= 1.6.0"
 
   backend "azurerm" {}
-  
+
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
@@ -86,6 +86,11 @@ resource "azurerm_container_app" "frontend" {
     type = "SystemAssigned"
   }
 
+  # Explicitly declare the private registry host (auth via MI + AcrPull)
+  registry {
+    server = azurerm_container_registry.acr.login_server
+  }
+
   template {
     container {
       name   = "frontend"
@@ -115,6 +120,11 @@ resource "azurerm_container_app" "frontend" {
       percentage      = 100
     }
   }
+
+  # Ensure AcrPull role is in place before first image pull
+  depends_on = [
+    azurerm_role_assignment.frontend_acr_pull
+  ]
 }
 
 ################################
@@ -128,6 +138,10 @@ resource "azurerm_container_app" "backend" {
 
   identity {
     type = "SystemAssigned"
+  }
+
+  registry {
+    server = azurerm_container_registry.acr.login_server
   }
 
   template {
@@ -156,6 +170,10 @@ resource "azurerm_container_app" "backend" {
       percentage      = 100
     }
   }
+
+  depends_on = [
+    azurerm_role_assignment.backend_acr_pull
+  ]
 }
 
 ################################
