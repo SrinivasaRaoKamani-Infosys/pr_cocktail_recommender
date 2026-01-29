@@ -120,11 +120,6 @@ resource "azurerm_container_app" "frontend" {
       percentage      = 100
     }
   }
-
-  # Ensure AcrPull role is in place before first image pull
-  depends_on = [
-    azurerm_role_assignment.frontend_acr_pull
-  ]
 }
 
 ################################
@@ -170,10 +165,6 @@ resource "azurerm_container_app" "backend" {
       percentage      = 100
     }
   }
-
-  depends_on = [
-    azurerm_role_assignment.backend_acr_pull
-  ]
 }
 
 ################################
