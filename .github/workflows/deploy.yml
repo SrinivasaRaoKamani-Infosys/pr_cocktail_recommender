@@ -33,7 +33,7 @@ subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
 
 # --------------------------------------------------
-# 3. Login to Azure Container Registry
+# 3. Login to Azure Container Registry (ACR)
 # --------------------------------------------------
 - name: Login to ACR
 run: |
