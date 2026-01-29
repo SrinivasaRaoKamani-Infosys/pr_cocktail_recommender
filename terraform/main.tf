@@ -96,7 +96,7 @@ resource "azurerm_container_app" "frontend" {
     min_replicas = 1
     max_replicas = 5
 
-    # HTTP scale rule (concurrent requests threshold)
+    # HTTP autoscale rule
     http_scale_rule {
       name                = "http"
       concurrent_requests = 50
@@ -107,7 +107,7 @@ resource "azurerm_container_app" "frontend" {
     external_enabled = true
     target_port      = 80
 
-    # Required even when revision_mode = "Single"
+    # Required even with Single revision mode
     traffic_weight {
       latest_revision = true
       percentage      = 100
@@ -175,7 +175,6 @@ resource "azurerm_role_assignment" "backend_acr_pull" {
 # OUTPUTS
 ################################
 output "frontend_url" {
-  # You can also use latest_revision_fqdn; both are exposed by the resource
   value = azurerm_container_app.frontend.ingress[0].fqdn
 }
 
