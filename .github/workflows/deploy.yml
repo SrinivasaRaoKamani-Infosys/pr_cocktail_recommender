@@ -25,7 +25,7 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       # -----------------------------
-      # Export ARM creds for Terraform
+      # Export ARM creds for Terraform backend/provider
       # -----------------------------
       - name: Set Terraform Azure Credentials
         run: |
@@ -47,7 +47,34 @@ jobs:
         with:
           terraform_version: 1.6.6
 
-      # ⬇️ Build & push first so images exist for the initial revision
+      # 4️⃣ Terraform Init (remote backend)
+      - name: Terraform Init
+        working-directory: terraform
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ vars.TFSTATE_RG }}" \
+            -backend-config="storage_account_name=${{ vars.TFSTATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ vars.TFSTATE_CONTAINER }}" \
+            -backend-config="key=${{ vars.TFSTATE_KEY }}"
+
+      # 5️⃣ Phase 1: Create foundational infra (RG + ACR + Log Analytics + Container Apps Env)
+      - name: Terraform Apply (Phase 1: infra only)
+        working-directory: terraform
+        run: |
+          terraform apply -auto-approve \
+            -target=azurerm_resource_group.rg \
+            -target=azurerm_container_registry.acr \
+            -target=azurerm_log_analytics_workspace.law \
+            -target=azurerm_container_app_environment.env
+
+      # 6️⃣ Enable ACR policy required for Container Apps managed-identity pulls
+      - name: Enable ACR authentication-as-arm
+        run: |
+          az acr config authentication-as-arm update \
+            -r ${{ vars.ACR_NAME }} \
+            --status enabled
+
+      # 7️⃣ Login + build & push images (now that ACR exists and policy is set)
       - name: Login to ACR
         run: |
           az acr login --name ${{ vars.ACR_NAME }}
@@ -62,18 +89,8 @@ jobs:
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }} ./backend
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
 
-      # 4️⃣ Terraform Init (remote backend)
-      - name: Terraform Init
-        working-directory: terraform
-        run: |
-          terraform init \
-            -backend-config="resource_group_name=${{ vars.TFSTATE_RG }}" \
-            -backend-config="storage_account_name=${{ vars.TFSTATE_STORAGE_ACCOUNT }}" \
-            -backend-config="container_name=${{ vars.TFSTATE_CONTAINER }}" \
-            -backend-config="key=${{ vars.TFSTATE_KEY }}"
-
-      # 5️⃣ Terraform Apply (creates RG + ACR + Container Apps Env + Apps)
-      - name: Terraform Apply
+      # 8️⃣ Phase 2: Create Container Apps (images already present; MI + AcrPull will authenticate)
+      - name: Terraform Apply (Phase 2: apps)
         working-directory: terraform
         run: |
           terraform apply -auto-approve \
