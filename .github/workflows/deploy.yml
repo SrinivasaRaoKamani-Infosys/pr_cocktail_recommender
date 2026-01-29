@@ -41,7 +41,7 @@ jobs:
       - name: Terraform Init
         working-directory: terraform
         run: |
-          terraform init -input=false \
+          terraform init \
             -backend-config="resource_group_name=${{ vars.TFSTATE_RG }}" \
             -backend-config="storage_account_name=${{ vars.TFSTATE_STORAGE_ACCOUNT }}" \
             -backend-config="container_name=${{ vars.TFSTATE_CONTAINER }}" \
@@ -51,7 +51,7 @@ jobs:
       - name: Terraform Apply
         working-directory: terraform
         run: |
-          terraform apply -auto-approve -input=false -lock-timeout=5m \
+          terraform apply -auto-approve \
             -var="location=${{ vars.LOCATION }}" \
             -var="resource_group_name=${{ vars.RESOURCE_GROUP }}" \
             -var="acr_name=${{ vars.ACR_NAME }}"
