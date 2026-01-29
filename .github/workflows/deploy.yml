@@ -1,79 +1,79 @@
 name: Build and Deploy to Azure Container Apps
 
 on:
-push:
-branches:
-- main
+  push:
+    branches:
+      - main
 
 env:
-FRONTEND_IMAGE: frontend-app
-BACKEND_IMAGE: backend-app
-IMAGE_TAG: latest
+  FRONTEND_IMAGE: frontend-app
+  BACKEND_IMAGE: backend-app
+  IMAGE_TAG: latest
 
 jobs:
-build-and-deploy:
-runs-on: ubuntu-latest
+  build-and-deploy:
+    runs-on: ubuntu-latest
 
-steps:
-# --------------------------------------------------
-# 1. Checkout source code
-# --------------------------------------------------
-- name: Checkout code
-uses: actions/checkout@v4
+    steps:
+      # --------------------------------------------------
+      # 1. Checkout source code
+      # --------------------------------------------------
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-# --------------------------------------------------
-# 2. Azure Login (Service Principal)
-# --------------------------------------------------
-- name: Azure Login
-uses: azure/login@v1
-with:
-creds: ${{ secrets.AZURE_CREDENTIALS }}
+      # --------------------------------------------------
+      # 2. Azure Login (Service Principal)
+      # --------------------------------------------------
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-# --------------------------------------------------
-# 3. Login to Azure Container Registry (ACR)
-# --------------------------------------------------
-- name: Login to ACR
-run: |
-az acr login --name ${{ vars.ACR_NAME }}
+      # --------------------------------------------------
+      # 3. Login to Azure Container Registry (ACR)
+      # --------------------------------------------------
+      - name: Login to ACR
+        run: |
+          az acr login --name ${{ vars.ACR_NAME }}
 
-# --------------------------------------------------
-# 4. Build & Push Frontend (React) Image
-# --------------------------------------------------
-- name: Build & Push Frontend Image
-run: |
-docker build \
--t ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }} \
-./frontend
+      # --------------------------------------------------
+      # 4. Build & Push Frontend (React) Image
+      # --------------------------------------------------
+      - name: Build & Push Frontend Image
+        run: |
+          docker build \
+            -t ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }} \
+            ./frontend
 
-docker push \
-${{ secrets.ACR_LOGIN_SERVER }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }}
+          docker push \
+            ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }}
 
-# --------------------------------------------------
-# 5. Build & Push Backend (Python) Image
-# --------------------------------------------------
-- name: Build & Push Backend Image
-run: |
-docker build \
--t ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }} \
-./backend
+      # --------------------------------------------------
+      # 5. Build & Push Backend (Python) Image
+      # --------------------------------------------------
+      - name: Build & Push Backend Image
+        run: |
+          docker build \
+            -t ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }} \
+            ./backend
 
-docker push \
-${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
+          docker push \
+            ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
 
-# --------------------------------------------------
-# 6. Terraform Init
-# --------------------------------------------------
-- name: Terraform Init
-working-directory: terraform
-run: terraform init
+      # --------------------------------------------------
+      # 6. Terraform Init
+      # --------------------------------------------------
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init
 
-# --------------------------------------------------
-# 7. Terraform Apply (Deploy Container Apps)
-# --------------------------------------------------
-- name: Terraform Apply
-working-directory: terraform
-run: |
-terraform apply -auto-approve \
--var="location=${{ vars.LOCATION }}" \
--var="resource_group_name=${{ vars.RESOURCE_GROUP }}" \
--var="acr_name=${{ vars.ACR_NAME }}"
+      # --------------------------------------------------
+      # 7. Terraform Apply (Deploy Container Apps)
+      # --------------------------------------------------
+      - name: Terraform Apply
+        working-directory: terraform
+        run: |
+          terraform apply -auto-approve \
+            -var="location=${{ vars.LOCATION }}" \
+            -var="resource_group_name=${{ vars.RESOURCE_GROUP }}" \
+            -var="acr_name=${{ vars.ACR_NAME }}"
