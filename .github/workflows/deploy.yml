@@ -1,4 +1,4 @@
-name: Build and Deploy with Terraform
+name: Build and Deploy to Azure Container Apps
 
 on:
 push:
@@ -8,15 +8,22 @@ branches:
 env:
 FRONTEND_IMAGE: frontend-app
 BACKEND_IMAGE: backend-app
+IMAGE_TAG: latest # you can change this to ${{ github.sha }} later
 
 jobs:
-deploy:
+build-and-deploy:
 runs-on: ubuntu-latest
 
 steps:
-- name: Checkout Code
+# --------------------------------------------------
+# 1. Checkout source code
+# --------------------------------------------------
+- name: Checkout code
 uses: actions/checkout@v4
 
+# --------------------------------------------------
+# 2. Azure Login (Service Principal)
+# --------------------------------------------------
 - name: Azure Login
 uses: azure/login@v1
 with:
@@ -24,31 +31,53 @@ client-id: ${{ secrets.AZURE_CLIENT_ID }}
 tenant-id: ${{ secrets.AZURE_TENANT_ID }}
 subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+# --------------------------------------------------
+# 3. Login to Azure Container Registry
+# --------------------------------------------------
 - name: Login to ACR
-run: az acr login --name ${{ secrets.ACR_NAME }}
+run: |
+az acr login --name ${{ secrets.ACR_NAME }}
 
+# --------------------------------------------------
+# 4. Build & Push Frontend (React) Image
+# --------------------------------------------------
 - name: Build & Push Frontend Image
 run: |
-docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.FRONTEND_IMAGE }}:latest ./frontend
-docker push ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.FRONTEND_IMAGE }}:latest
+docker build \
+-t ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }} \
+./frontend
 
+docker push \
+${{ secrets.ACR_LOGIN_SERVER }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }}
+
+# --------------------------------------------------
+# 5. Build & Push Backend (Python) Image
+# --------------------------------------------------
 - name: Build & Push Backend Image
 run: |
-docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:latest ./backend
-docker push ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:latest
+docker build \
+-t ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }} \
+./backend
 
+docker push \
+${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
+
+# --------------------------------------------------
+# 6. Terraform Init
+# --------------------------------------------------
 - name: Terraform Init
 working-directory: terraform
 run: terraform init
 
-- name: Terraform Init
-working-directory: terraform
-run: terraform init
-
+# --------------------------------------------------
+# 7. Terraform Apply (Deploy Container Apps)
+# --------------------------------------------------
 - name: Terraform Apply
 working-directory: terraform
 run: |
 terraform apply -auto-approve \
 -var="location=${{ secrets.LOCATION }}" \
 -var="resource_group_name=${{ secrets.RESOURCE_GROUP }}" \
--var="acr_login_server=${{ secrets.ACR_LOGIN_SERVER }}"
+-var="acr_login_server=${{ secrets.ACR_LOGIN_SERVER }}" \
+-var="acr_name=${{ secrets.ACR_NAME }}" \
+-var="acr_rg=${{ secrets.ACR_RESOURCE_GROUP }}"
