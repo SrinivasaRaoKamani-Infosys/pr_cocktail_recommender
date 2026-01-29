@@ -65,10 +65,10 @@ resource "azurerm_log_analytics_workspace" "law" {
 # CONTAINER APPS ENVIRONMENT
 ################################
 resource "azurerm_container_app_environment" "env" {
-  name                         = "${var.resource_group_name}-env"
-  location                     = azurerm_resource_group.rg.location
-  resource_group_name          = azurerm_resource_group.rg.name
-  log_analytics_workspace_id   = azurerm_log_analytics_workspace.law.id
+  name                       = "${var.resource_group_name}-env"
+  location                   = azurerm_resource_group.rg.location
+  resource_group_name        = azurerm_resource_group.rg.name
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.law.id
 }
 
 ################################
@@ -86,33 +86,32 @@ resource "azurerm_container_app" "frontend" {
 
   template {
     container {
-      name  = "frontend"
-      image = "${azurerm_container_registry.acr.login_server}/frontend-app:latest"
-
-      # CPU/memory belong under 'resources'
-      resources {
-        cpu    = 0.5
-        memory = "1Gi"
-      }
+      name   = "frontend"
+      image  = "${azurerm_container_registry.acr.login_server}/frontend-app:latest"
+      cpu    = 0.5
+      memory = "1Gi"
     }
 
-    scale {
-      min_replicas = 1
-      max_replicas = 5
+    # Replica limits
+    min_replicas = 1
+    max_replicas = 5
 
-      # Use 'rules' (plural)
-      rules {
-        name = "http"
-        http {
-          concurrent_requests = 50
-        }
-      }
+    # HTTP scale rule (concurrent requests threshold)
+    http_scale_rule {
+      name                = "http"
+      concurrent_requests = 50
     }
   }
 
   ingress {
     external_enabled = true
     target_port      = 80
+
+    # Required even when revision_mode = "Single"
+    traffic_weight {
+      latest_revision = true
+      percentage      = 100
+    }
   }
 }
 
@@ -131,31 +130,29 @@ resource "azurerm_container_app" "backend" {
 
   template {
     container {
-      name  = "backend"
-      image = "${azurerm_container_registry.acr.login_server}/backend-app:latest"
-
-      resources {
-        cpu    = 0.5
-        memory = "1Gi"
-      }
+      name   = "backend"
+      image  = "${azurerm_container_registry.acr.login_server}/backend-app:latest"
+      cpu    = 0.5
+      memory = "1Gi"
     }
 
-    scale {
-      min_replicas = 1
-      max_replicas = 5
+    min_replicas = 1
+    max_replicas = 5
 
-      rules {
-        name = "http"
-        http {
-          concurrent_requests = 30
-        }
-      }
+    http_scale_rule {
+      name                = "http"
+      concurrent_requests = 30
     }
   }
 
   ingress {
     external_enabled = true
     target_port      = 5000
+
+    traffic_weight {
+      latest_revision = true
+      percentage      = 100
+    }
   }
 }
 
@@ -178,7 +175,7 @@ resource "azurerm_role_assignment" "backend_acr_pull" {
 # OUTPUTS
 ################################
 output "frontend_url" {
-  # Prefer ingress fqdn
+  # You can also use latest_revision_fqdn; both are exposed by the resource
   value = azurerm_container_app.frontend.ingress[0].fqdn
 }
 
