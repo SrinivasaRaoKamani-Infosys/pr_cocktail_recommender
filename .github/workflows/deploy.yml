@@ -40,7 +40,12 @@ jobs:
       # 4️⃣ Terraform Init
       - name: Terraform Init
         working-directory: terraform
-        run: terraform init
+        run: terraform init \
+               -backend-config="resource_group_name=${{ vars.TFSTATE_RG }}" \
+               -backend-config="storage_account_name=${{ vars.TFSTATE_STORAGE_ACCOUNT }}" \
+               -backend-config="container_name=${{ vars.TFSTATE_CONTAINER }}" \
+               -backend-config="key=${{ vars.TFSTATE_KEY }}"
+               
 
       # 5️⃣ Terraform Apply (creates RG + ACR + Container Apps Env + Apps)
       - name: Terraform Apply
