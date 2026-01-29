@@ -83,4 +83,3 @@ jobs:
           -var="location=${{ vars.LOCATION }}"
           -var="resource_group_name=${{ vars.RESOURCE_GROUP }}"
           -var="acr_name=${{ vars.ACR_NAME }}"
-``
