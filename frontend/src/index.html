@@ -1,1 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Cocktail Recommender</title>
+</head>
+<body>
+<h1>Frontend App</h1>
+<button onclick="callBackend()">Call Backend</button>
+<p id="output"></p>
 
+<script>
+function callBackend() {
+fetch("https://BACKEND_URL/api/message")
+.then(res => res.json())
+.then(data => {
+document.getElementById("output").innerText = data.message;
+})
+.catch(() => {
+document.getElementById("output").innerText = "Backend not reachable";
+});
+}
+</script>
+</body>
+</html>
