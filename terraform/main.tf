@@ -86,11 +86,6 @@ resource "azurerm_container_app" "frontend" {
     type = "SystemAssigned"
   }
 
-  # Explicitly declare the private registry host (auth via MI + AcrPull)
-  registry {
-    server = azurerm_container_registry.acr.login_server
-  }
-
   template {
     container {
       name   = "frontend"
@@ -133,10 +128,6 @@ resource "azurerm_container_app" "backend" {
 
   identity {
     type = "SystemAssigned"
-  }
-
-  registry {
-    server = azurerm_container_registry.acr.login_server
   }
 
   template {
