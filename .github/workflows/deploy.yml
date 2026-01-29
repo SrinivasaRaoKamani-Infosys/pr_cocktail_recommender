@@ -15,61 +15,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # --------------------------------------------------
-      # 1. Checkout source code
-      # --------------------------------------------------
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # --------------------------------------------------
-      # 2. Azure Login (Service Principal)
-      # --------------------------------------------------
+      # 1️⃣ Azure Login
       - name: Azure Login
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # --------------------------------------------------
-      # 3. Login to Azure Container Registry
-      # --------------------------------------------------
-      - name: Login to ACR
-        run: |
-          az acr login --name ${{ vars.ACR_NAME }}
-
-      # --------------------------------------------------
-      # 4. Build & Push Frontend (React) Image
-      # --------------------------------------------------
-      - name: Build & Push Frontend Image
-        run: |
-          docker build \
-            -t ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }} \
-            ./frontend
-
-          docker push \
-            ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }}
-
-      # --------------------------------------------------
-      # 5. Build & Push Backend (Python) Image
-      # --------------------------------------------------
-      - name: Build & Push Backend Image
-        run: |
-          docker build \
-            -t ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }} \
-            ./backend
-
-          docker push \
-            ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
-
-      # --------------------------------------------------
-      # 6. Terraform Init
-      # --------------------------------------------------
+      # 2️⃣ Terraform Init
       - name: Terraform Init
         working-directory: terraform
         run: terraform init
 
-      # --------------------------------------------------
-      # 7. Terraform Apply (Deploy Container Apps)
-      # --------------------------------------------------
+      # 3️⃣ Terraform Apply (creates RG + ACR + Container Apps)
       - name: Terraform Apply
         working-directory: terraform
         run: |
@@ -77,3 +37,20 @@ jobs:
             -var="location=${{ vars.LOCATION }}" \
             -var="resource_group_name=${{ vars.RESOURCE_GROUP }}" \
             -var="acr_name=${{ vars.ACR_NAME }}"
+
+      # 4️⃣ Login to ACR (NOW it exists)
+      - name: Login to ACR
+        run: |
+          az acr login --name ${{ vars.ACR_NAME }}
+
+      # 5️⃣ Build & Push Frontend Image
+      - name: Build & Push Frontend Image
+        run: |
+          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }} ./frontend
+          docker push ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }}
+
+      # 6️⃣ Build & Push Backend Image
+      - name: Build & Push Backend Image
+        run: |
+          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }} ./backend
+          docker push ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
