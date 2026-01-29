@@ -1,1 +1,54 @@
+name: Build and Deploy with Terraform
 
+on:
+push:
+branches:
+- main
+
+env:
+FRONTEND_IMAGE: frontend-app
+BACKEND_IMAGE: backend-app
+
+jobs:
+deploy:
+runs-on: ubuntu-latest
+
+steps:
+- name: Checkout Code
+uses: actions/checkout@v4
+
+- name: Azure Login
+uses: azure/login@v1
+with:
+client-id: ${{ secrets.AZURE_CLIENT_ID }}
+tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+- name: Login to ACR
+run: az acr login --name ${{ secrets.ACR_NAME }}
+
+- name: Build & Push Frontend Image
+run: |
+docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.FRONTEND_IMAGE }}:latest ./frontend
+docker push ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.FRONTEND_IMAGE }}:latest
+
+- name: Build & Push Backend Image
+run: |
+docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:latest ./backend
+docker push ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:latest
+
+- name: Terraform Init
+working-directory: terraform
+run: terraform init
+
+- name: Terraform Init
+working-directory: terraform
+run: terraform init
+
+- name: Terraform Apply
+working-directory: terraform
+run: |
+terraform apply -auto-approve \
+-var="location=${{ secrets.LOCATION }}" \
+-var="resource_group_name=${{ secrets.RESOURCE_GROUP }}" \
+-var="acr_login_server=${{ secrets.ACR_LOGIN_SERVER }}"
