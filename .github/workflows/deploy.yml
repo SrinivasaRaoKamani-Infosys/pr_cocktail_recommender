@@ -8,7 +8,7 @@ branches:
 env:
 FRONTEND_IMAGE: frontend-app
 BACKEND_IMAGE: backend-app
-IMAGE_TAG: latest # you can change this to ${{ github.sha }} later
+IMAGE_TAG: latest
 
 jobs:
 build-and-deploy:
