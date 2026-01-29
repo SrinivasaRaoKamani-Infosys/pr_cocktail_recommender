@@ -30,7 +30,7 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       # --------------------------------------------------
-      # 3. Login to Azure Container Registry (ACR)
+      # 3. Login to Azure Container Registry
       # --------------------------------------------------
       - name: Login to ACR
         run: |
