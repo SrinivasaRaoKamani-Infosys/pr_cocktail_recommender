@@ -18,15 +18,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 1️⃣ Azure Login (Service Principal via AZURE_CREDENTIALS secret)
       - name: Azure Login
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # -----------------------------
-      # Export ARM creds for Terraform backend/provider
-      # -----------------------------
       - name: Set Terraform Azure Credentials
         run: |
           echo "ARM_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> $GITHUB_ENV
@@ -34,20 +30,17 @@ jobs:
           echo "ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> $GITHUB_ENV
           echo "ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> $GITHUB_ENV
 
-      # 2️⃣ Ensure required Azure resource providers are registered
-      - name: Register Azure resource providers (Microsoft.App / OperationalInsights / ContainerRegistry)
+      - name: Register Azure resource providers
         run: |
           az provider register --namespace Microsoft.App --wait
           az provider register --namespace Microsoft.OperationalInsights --wait
           az provider register --namespace Microsoft.ContainerRegistry --wait
 
-      # 3️⃣ Install Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.6.6
 
-      # 4️⃣ Terraform Init (remote backend)
       - name: Terraform Init
         working-directory: terraform
         run: |
@@ -57,7 +50,7 @@ jobs:
             -backend-config="container_name=${{ vars.TFSTATE_CONTAINER }}" \
             -backend-config="key=${{ vars.TFSTATE_KEY }}"
 
-      # 5️⃣ Phase 1: Create foundational infra (RG + ACR + Log Analytics + Container Apps Env)
+      # Phase 1: create RG + ACR + Log Analytics + Container Apps Environment
       - name: Terraform Apply (Phase 1: infra only)
         working-directory: terraform
         run: |
@@ -67,14 +60,12 @@ jobs:
             -target=azurerm_log_analytics_workspace.law \
             -target=azurerm_container_app_environment.env
 
-      # 6️⃣ Enable ACR policy required for Container Apps managed-identity pulls
       - name: Enable ACR authentication-as-arm
         run: |
           az acr config authentication-as-arm update \
             -r ${{ vars.ACR_NAME }} \
             --status enabled
 
-      # 7️⃣ Login + build & push images (now that ACR exists and policy is set)
       - name: Login to ACR
         run: |
           az acr login --name ${{ vars.ACR_NAME }}
@@ -89,7 +80,7 @@ jobs:
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }} ./backend
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
 
-      # 8️⃣ Phase 2: Create Container Apps (images already present; MI + AcrPull will authenticate)
+      # Phase 2: create Container Apps
       - name: Terraform Apply (Phase 2: apps)
         working-directory: terraform
         run: |
