@@ -18,24 +18,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 1️⃣ Azure Login
+      # 1️⃣ Azure Login (Service Principal via AZURE_CREDENTIALS secret)
       - name: Azure Login
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 2️⃣ Install Terraform
+      # 2️⃣ Ensure required Azure resource providers are registered
+      - name: Register Azure resource providers (Microsoft.App / OperationalInsights / ContainerRegistry)
+        run: |
+          az provider register --namespace Microsoft.App --wait
+          az provider register --namespace Microsoft.OperationalInsights --wait
+          az provider register --namespace Microsoft.ContainerRegistry --wait
+
+      # 3️⃣ Install Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.6.6
 
-      # 3️⃣ Terraform Init
+      # 4️⃣ Terraform Init
       - name: Terraform Init
         working-directory: terraform
         run: terraform init
 
-      # 4️⃣ Terraform Apply (creates RG + ACR + Container Apps)
+      # 5️⃣ Terraform Apply (creates RG + ACR + Container Apps Env + Apps)
       - name: Terraform Apply
         working-directory: terraform
         run: |
@@ -44,18 +51,18 @@ jobs:
             -var="resource_group_name=${{ vars.RESOURCE_GROUP }}" \
             -var="acr_name=${{ vars.ACR_NAME }}"
 
-      # 5️⃣ Login to ACR (NOW it exists)
+      # 6️⃣ ACR login (after ACR exists)
       - name: Login to ACR
         run: |
           az acr login --name ${{ vars.ACR_NAME }}
 
-      # 6️⃣ Build & Push Frontend Image
+      # 7️⃣ Build & Push Frontend Image
       - name: Build & Push Frontend Image
         run: |
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }} ./frontend
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }}
 
-      # 7️⃣ Build & Push Backend Image
+      # 8️⃣ Build & Push Backend Image
       - name: Build & Push Backend Image
         run: |
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }} ./backend
