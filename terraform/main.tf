@@ -1,100 +1,197 @@
-name: Build and Deploy to Azure Container Apps
+terraform {
+  required_version = ">= 1.6.0"
 
-on:
-  push:
-    branches:
-      - main
+  backend "azurerm" {}
 
-env:
-  FRONTEND_IMAGE: frontend-app
-  BACKEND_IMAGE: backend-app
-  IMAGE_TAG: latest
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 3.100"
+    }
+  }
+}
 
-# Prevent concurrent Terraform runs on the same ref
-concurrency:
-  group: tf-${{ github.ref }}
-  cancel-in-progress: false
+provider "azurerm" {
+  features {}
+}
 
-jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
+################################
+# VARIABLES
+################################
+variable "location" {
+  description = "Azure region"
+  type        = string
+}
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+variable "resource_group_name" {
+  description = "Resource Group name"
+  type        = string
+}
 
-      - name: Azure Login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+variable "acr_name" {
+  description = "Azure Container Registry name (short name, e.g. myregistry)"
+  type        = string
+}
 
-      # Export ARM_* (backend/provider auth) and TF_VAR_* (Terraform inputs)
-      - name: Export Azure and Terraform environment variables
-        shell: bash
-        run: |
-          # Azure auth for backend/provider
-          echo "ARM_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> "$GITHUB_ENV"
-          echo "ARM_CLIENT_SECRET=${{ secrets.AZURE_CLIENT_SECRET }}" >> "$GITHUB_ENV"
-          echo "ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> "$GITHUB_ENV"
-          echo "ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> "$GITHUB_ENV"
+################################
+# RESOURCE GROUP
+################################
+resource "azurerm_resource_group" "rg" {
+  name     = var.resource_group_name
+  location = var.location
+}
 
-          # Terraform input variables (so Terraform won't prompt)
-          echo "TF_VAR_location=${{ vars.LOCATION }}" >> "$GITHUB_ENV"
-          echo "TF_VAR_resource_group_name=${{ vars.RESOURCE_GROUP }}" >> "$GITHUB_ENV"
-          echo "TF_VAR_acr_name=${{ vars.ACR_NAME }}" >> "$GITHUB_ENV"
+################################
+# AZURE CONTAINER REGISTRY (ACR)
+################################
+resource "azurerm_container_registry" "acr" {
+  name                = var.acr_name
+  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group.rg.location
+  sku                 = "Basic"
+  admin_enabled       = false
+}
 
-      - name: Register Azure resource providers
-        run: |
-          az provider register --namespace Microsoft.App --wait
-          az provider register --namespace Microsoft.OperationalInsights --wait
-          az provider register --namespace Microsoft.ContainerRegistry --wait
+################################
+# LOG ANALYTICS WORKSPACE
+################################
+resource "azurerm_log_analytics_workspace" "law" {
+  name                = "${var.resource_group_name}-law"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  sku                 = "PerGB2018"
+  retention_in_days   = 30
+}
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.6.6
+################################
+# CONTAINER APPS ENVIRONMENT
+################################
+resource "azurerm_container_app_environment" "env" {
+  name                       = "${var.resource_group_name}-env"
+  location                   = azurerm_resource_group.rg.location
+  resource_group_name        = azurerm_resource_group.rg.name
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.law.id
+}
 
-      - name: Terraform Init (remote backend)
-        working-directory: terraform
-        run: >
-          terraform init -input=false
-          -backend-config="resource_group_name=${{ vars.TFSTATE_RG }}"
-          -backend-config="storage_account_name=${{ vars.TFSTATE_STORAGE_ACCOUNT }}"
-          -backend-config="container_name=${{ vars.TFSTATE_CONTAINER }}"
-          -backend-config="key=${{ vars.TFSTATE_KEY }}"
+################################
+# USER-ASSIGNED MANAGED IDENTITY FOR ACR PULLS
+################################
+resource "azurerm_user_assigned_identity" "acr_pull" {
+  name                = "${var.resource_group_name}-acr-pull-id"
+  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group.rg.location
+}
 
-      # Phase 1: create RG + ACR + LAW + Env + UAMI + AcrPull assignment
-      - name: Terraform Apply - Phase 1 (infra only)
-        working-directory: terraform
-        run: >
-          terraform apply -auto-approve -input=false -lock-timeout=5m
-          -target=azurerm_resource_group.rg
-          -target=azurerm_container_registry.acr
-          -target=azurerm_log_analytics_workspace.law
-          -target=azurerm_container_app_environment.env
-          -target=azurerm_user_assigned_identity.acr_pull
-          -target=azurerm_role_assignment.acr_pull_for_uami
+# Pre-authorize the UAMI to pull from ACR (ensures first revision can pull)
+resource "azurerm_role_assignment" "acr_pull_for_uami" {
+  scope                = azurerm_container_registry.acr.id
+  role_definition_name = "AcrPull"
+  principal_id         = azurerm_user_assigned_identity.acr_pull.principal_id
+}
 
-      # Required for Container Apps managed-identity image pulls
-      - name: Enable ACR authentication-as-arm
-        run: az acr config authentication-as-arm update -r ${{ vars.ACR_NAME }} --status enabled
+################################
+# FRONTEND CONTAINER APP
+################################
+resource "azurerm_container_app" "frontend" {
+  name                         = "frontend-app"
+  resource_group_name          = azurerm_resource_group.rg.name
+  container_app_environment_id = azurerm_container_app_environment.env.id
+  revision_mode                = "Single"
 
-      # Build & push images (now that ACR exists and policy is set)
-      - name: Login to ACR
-        run: az acr login --name ${{ vars.ACR_NAME }}
+  # Use UAMI for registry pulls; keep SystemAssigned too if you want it for other Azure calls
+  identity {
+    type         = "SystemAssigned, UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.acr_pull.id]
+  }
 
-      - name: Build and Push Frontend Image
-        run: |
-          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }} ./frontend
-          docker push ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }}
+  # Tell Container Apps which identity to use when pulling from ACR
+  registry {
+    server   = azurerm_container_registry.acr.login_server
+    identity = azurerm_user_assigned_identity.acr_pull.id
+  }
 
-      - name: Build and Push Backend Image
-        run: |
-          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }} ./backend
-          docker push ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
+  template {
+    container {
+      name   = "frontend"
+      image  = "${azurerm_container_registry.acr.login_server}/frontend-app:latest"
+      cpu    = 0.5
+      memory = "1Gi"
+    }
 
-      # Phase 2: create Container Apps (first revision now pulls via UAMI)
-      - name: Terraform Apply - Phase 2 (apps)
-        working-directory: terraform
-        run: >
-          terraform apply -auto-approve -input=false -lock-timeout=5m
+    min_replicas = 1
+    max_replicas = 5
+
+    http_scale_rule {
+      name                = "http"
+      concurrent_requests = 50
+    }
+  }
+
+  ingress {
+    external_enabled = true
+    target_port      = 80
+
+    traffic_weight {
+      latest_revision = true
+      percentage      = 100
+    }
+  }
+}
+
+################################
+# BACKEND CONTAINER APP
+################################
+resource "azurerm_container_app" "backend" {
+  name                         = "backend-app"
+  resource_group_name          = azurerm_resource_group.rg.name
+  container_app_environment_id = azurerm_container_app_environment.env.id
+  revision_mode                = "Single"
+
+  identity {
+    type         = "SystemAssigned, UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.acr_pull.id]
+  }
+
+  registry {
+    server   = azurerm_container_registry.acr.login_server
+    identity = azurerm_user_assigned_identity.acr_pull.id
+  }
+
+  template {
+    container {
+      name   = "backend"
+      image  = "${azurerm_container_registry.acr.login_server}/backend-app:latest"
+      cpu    = 0.5
+      memory = "1Gi"
+    }
+
+    min_replicas = 1
+    max_replicas = 5
+
+    http_scale_rule {
+      name                = "http"
+      concurrent_requests = 30
+    }
+  }
+
+  ingress {
+    external_enabled = true
+    target_port      = 5000
+
+    traffic_weight {
+      latest_revision = true
+      percentage      = 100
+    }
+  }
+}
+
+################################
+# OUTPUTS
+################################
+output "frontend_url" {
+  value = azurerm_container_app.frontend.ingress[0].fqdn
+}
+
+output "backend_url" {
+  value = azurerm_container_app.backend.ingress[0].fqdn
+}
