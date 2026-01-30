@@ -13,7 +13,7 @@ const html = `
 
 <script>
 function callApi() {
-fetch('/api/message')
+fetch('https://backend-app.bravecliff-0f450770.southindia.azurecontainerapps.io/api/message')
 .then(res => res.json())
 .then(data => {
 document.getElementById('result').innerText = data.message;
