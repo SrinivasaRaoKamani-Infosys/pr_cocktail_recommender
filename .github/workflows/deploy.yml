@@ -10,6 +10,11 @@ env:
   BACKEND_IMAGE: backend-app
   IMAGE_TAG: latest
 
+# Prevent concurrent Terraform runs on the same ref (optional but recommended)
+concurrency:
+  group: tf-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -23,13 +28,20 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Set Terraform Azure Credentials
+      # Export ARM_* (for backend/provider auth) and TF_VAR_* (for Terraform input variables)
+      - name: Export Azure and Terraform environment variables
         shell: bash
         run: |
+          # Azure auth for backend/provider
           echo "ARM_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> "$GITHUB_ENV"
           echo "ARM_CLIENT_SECRET=${{ secrets.AZURE_CLIENT_SECRET }}" >> "$GITHUB_ENV"
           echo "ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> "$GITHUB_ENV"
           echo "ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> "$GITHUB_ENV"
+
+          # Terraform input variables (so Terraform won't prompt)
+          echo "TF_VAR_location=${{ vars.LOCATION }}" >> "$GITHUB_ENV"
+          echo "TF_VAR_resource_group_name=${{ vars.RESOURCE_GROUP }}" >> "$GITHUB_ENV"
+          echo "TF_VAR_acr_name=${{ vars.ACR_NAME }}" >> "$GITHUB_ENV"
 
       - name: Register Azure resource providers
         run: |
@@ -45,7 +57,7 @@ jobs:
       - name: Terraform Init (remote backend)
         working-directory: terraform
         run: >
-          terraform init
+          terraform init -input=false
           -backend-config="resource_group_name=${{ vars.TFSTATE_RG }}"
           -backend-config="storage_account_name=${{ vars.TFSTATE_STORAGE_ACCOUNT }}"
           -backend-config="container_name=${{ vars.TFSTATE_CONTAINER }}"
@@ -55,15 +67,17 @@ jobs:
       - name: Terraform Apply - Phase 1 (infra only)
         working-directory: terraform
         run: >
-          terraform apply -auto-approve
+          terraform apply -auto-approve -input=false -lock-timeout=5m
           -target=azurerm_resource_group.rg
           -target=azurerm_container_registry.acr
           -target=azurerm_log_analytics_workspace.law
           -target=azurerm_container_app_environment.env
 
+      # Required for Container Apps managed-identity image pulls from ACR
       - name: Enable ACR authentication-as-arm
         run: az acr config authentication-as-arm update -r ${{ vars.ACR_NAME }} --status enabled
 
+      # Build & push images (now that ACR exists and policy is set)
       - name: Login to ACR
         run: az acr login --name ${{ vars.ACR_NAME }}
 
@@ -81,7 +95,4 @@ jobs:
       - name: Terraform Apply - Phase 2 (apps)
         working-directory: terraform
         run: >
-          terraform apply -auto-approve
-          -var="location=${{ vars.LOCATION }}"
-          -var="resource_group_name=${{ vars.RESOURCE_GROUP }}"
-          -var="acr_name=${{ vars.ACR_NAME }}"
+          terraform apply -auto-approve -input=false -lock-timeout=5m
