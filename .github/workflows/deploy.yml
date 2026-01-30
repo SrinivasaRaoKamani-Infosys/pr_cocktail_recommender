@@ -10,7 +10,7 @@ env:
   BACKEND_IMAGE: backend-app
   IMAGE_TAG: latest
 
-# Prevent concurrent Terraform runs on the same ref (optional but recommended)
+# Prevent concurrent Terraform runs on the same ref
 concurrency:
   group: tf-${{ github.ref }}
   cancel-in-progress: false
@@ -28,7 +28,7 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # Export ARM_* (for backend/provider auth) and TF_VAR_* (for Terraform input variables)
+      # Export ARM_* (backend/provider auth) and TF_VAR_* (Terraform inputs)
       - name: Export Azure and Terraform environment variables
         shell: bash
         run: |
@@ -38,7 +38,7 @@ jobs:
           echo "ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> "$GITHUB_ENV"
           echo "ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> "$GITHUB_ENV"
 
-          # Terraform input variables (so Terraform won't prompt)
+          # Terraform input variables (no prompts)
           echo "TF_VAR_location=${{ vars.LOCATION }}" >> "$GITHUB_ENV"
           echo "TF_VAR_resource_group_name=${{ vars.RESOURCE_GROUP }}" >> "$GITHUB_ENV"
           echo "TF_VAR_acr_name=${{ vars.ACR_NAME }}" >> "$GITHUB_ENV"
@@ -63,7 +63,7 @@ jobs:
           -backend-config="container_name=${{ vars.TFSTATE_CONTAINER }}"
           -backend-config="key=${{ vars.TFSTATE_KEY }}"
 
-      # Phase 1: create RG + ACR + Log Analytics + Container Apps Environment
+      # Phase 1: create RG + ACR + LAW + Env + UAMI + AcrPull assignment
       - name: Terraform Apply - Phase 1 (infra only)
         working-directory: terraform
         run: >
@@ -72,8 +72,10 @@ jobs:
           -target=azurerm_container_registry.acr
           -target=azurerm_log_analytics_workspace.law
           -target=azurerm_container_app_environment.env
+          -target=azurerm_user_assigned_identity.acr_pull
+          -target=azurerm_role_assignment.acr_pull_for_uami
 
-      # Required for Container Apps managed-identity image pulls from ACR
+      # Required for Container Apps managed-identity image pulls
       - name: Enable ACR authentication-as-arm
         run: az acr config authentication-as-arm update -r ${{ vars.ACR_NAME }} --status enabled
 
@@ -91,7 +93,7 @@ jobs:
           docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }} ./backend
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
 
-      # Phase 2: create Container Apps
+      # Phase 2: create Container Apps (first revision now pulls via UAMI)
       - name: Terraform Apply - Phase 2 (apps)
         working-directory: terraform
         run: >
