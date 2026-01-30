@@ -5,12 +5,12 @@
 </head>
 <body>
 <h1>Frontend App</h1>
-
+<button onclick="callBackend()">Call Backend</button>
 <p id="output"></p>
 
 <script>
 function callBackend() {
-fetch("https://backend-app.bravecliff-0f450770.southindia.azurecontainerapps.io/health")
+fetch("https://backend-app.bravecliff-0f450770.southindia.azurecontainerapps.io/api/message")
 .then(res => res.json())
 .then(data => {
 document.getElementById("output").innerText = data.message;
